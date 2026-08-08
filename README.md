@@ -157,6 +157,4 @@ imported directly into **STM32CubeIDE** if you prefer an IDE-based workflow.
 ---
 
 ## License
-
-Add a license here (MIT is a common default for hobby/embedded projects) so
-others know how they can use your code.
+MIT LICENSE
