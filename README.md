@@ -163,6 +163,19 @@ imported directly into **STM32CubeIDE** if you prefer an IDE-based workflow.
 - FFT support is stubbed out (`//#include "fft.h"`) but not implemented.
 
 ---
+## Future Enhancements
+
+Two-channel capture Currently the scope samples a single ADC channel (PA1 / ADC1_IN1). Extending to two channels would involve:
+
+- Enabling a second ADC input (e.g. ADC1_IN2, though PA2/PA3 are currently used for buttons — would need re-mapping) and either alternating conversions between channels in the polling loop, or using ADC1 + ADC2 in dual simultaneous mode (supported in hardware on the STM32F4) for true simultaneous sampling without a per-channel rate penalty
+- A second color-coded trace on the LCD with its own Vmax/Vmin readout
+UI/button logic to select which channel's V/div and shift are being adjusted
+
+Higher input range (up to ~20 V) The ADC only accepts 0–3.3 V, so this requires external analog conditioning before the pin, not a firmware change alone:
+
+- A resistive voltage divider or op-amp attenuator stage to bring 20 V down to ≤3.3 V, ideally switchable (like a real scope's 1x/10x probe setting) so both small and large signals can be read without losing resolution
+- A corresponding scale factor per range, applied when converting ADC counts back to volts (currently hardcoded as * 3.3f / 4095.0f)
+- Input protection (clamping diodes) so voltage above 3.3 V can't damage the MCU pin if the divider/protection circuit fails
 
 ## License
 MIT LICENSE
