@@ -59,7 +59,10 @@ vertical position (shift) via push buttons and interrupts.
 > to keep it authoritative.
 
 ---
+#Results :
+![1Khz PWM Waveform](1Khz%20PWM.jpg)
 
+![1Khz Sine Wave](1Khz%20Sine%20Wave.jpg)
 ## Repository Structure
 
 ```
@@ -82,7 +85,7 @@ vertical position (shift) via push buttons and interrupts.
 │       ├── sys_clock.c
 │       └── fft.c
 ├── Src/
-│   ├── main.c
+│   ├── oscilloscope.c
 │   ├── startup_stm32f407xx.S
 │   ├── syscall.c
 │   └── sysmem.c
