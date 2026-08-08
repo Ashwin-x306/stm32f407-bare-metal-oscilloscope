@@ -61,9 +61,13 @@ vertical position (shift) via push buttons and interrupts.
 ---
 ## Results
 
-![1Khz PWM Waveform](1Khz%20PWM.jpg)
+<img src="1Khz%20PWM.jpg" alt="1Khz PWM Waveform" width="450">
 
-![1Khz Sine Wave](1Khz%20Sine%20Wave.jpg)
+*1 kHz PWM signal captured and rendered on the ST7789 display, showing Vmax/Vmin, timebase, and V/div readout.*
+
+<img src="1Khz%20Sine%20Wave.jpg" alt="1Khz Sine Wave" width="450">
+
+*1 kHz sine wave capture — waveform trace with grid overlay for timebase and voltage reference.*
 ## Repository Structure
 
 ```
