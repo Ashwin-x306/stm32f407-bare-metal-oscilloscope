@@ -59,7 +59,7 @@ vertical position (shift) via push buttons and interrupts.
 > to keep it authoritative.
 
 ---
-##Results
+## Results
 
 ![1Khz PWM Waveform](1Khz%20PWM.jpg)
 
