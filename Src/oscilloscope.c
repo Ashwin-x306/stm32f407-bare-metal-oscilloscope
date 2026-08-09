@@ -14,7 +14,7 @@
 //#define TEST_SAMPLE_RATE 100000   
 #define ADC_MAX_VALUE    4095     
 #define ADC_MID_VALUE    2048      
-uint8_t found = ENABLE ;
+uint8_t found = DISABLE ;
 uint8_t slide_trigger= DISABLE ; 
 #define SAMPLES 50000
 #define SCB_CPACR (*((volatile uint32_t *)0xE000ED88))
@@ -43,13 +43,15 @@ LCD_Handle_t LCD;
 uint16_t counter = 1;
 #define COUNTER_MAX 20  
 
+#define COUNTER_MIN 1 
+
 uint8_t  SLIDE = 5;  
 uint8_t  time_trigger = DISABLE ;
 uint16_t shift = 100 ; 
 #define SHIFT_MIN 0
 #define SHIFT_MAX 300  
 
-
+static volatile uint32_t last_press_time =0  ; 
 static volatile uint32_t last_press_time_down = 0;
 static volatile uint32_t last_press_time_up   = 0;
 static volatile uint32_t last_press_time_time = 0;
@@ -79,7 +81,39 @@ static void cycle_init (void){
     DWT_CYCCNT = 0;
     DWT_CTRL |= 1;   
 
-}
+} 
+// //USE THE FUNCTION TO CHECK   (1KHZ PWM WAVE )*/ 
+// void TIM3_GPIO_Init(void){
+//     GPIO_Handle_t GPIOHandle;
+
+//     GPIOHandle.pGPIOx = GPIOA;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_6;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF2;      // TIM3
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
+
+//     GPIO_Init(&GPIOHandle);
+// }
+
+// void TIM3_PWM_Init(void){
+ 
+// RCC->APB1ENR |= (1 << 1);    
+
+// TIM3_PSC = 83;
+// TIM3_ARR = 999;
+// TIM3_CCR1 = 500;
+// TIM3_CCMR1 &= ~(7 << 4);
+// TIM3_CCMR1 |=  (6 << 4);       
+// TIM3_CCMR1 |= (1 << 3);       
+// TIM3_CCER |= (1 << 0);        
+// TIM3_CR1 |= (1 << 7);         
+// TIM3_EGR |= (1 << 0);          
+// TIM3_CR1 |= (1 << 0);     
+// }
+
+
 static void SPI2_GPIO_Init(void)
 {
     GPIO_Handle_t GPIOHandle;
@@ -120,6 +154,7 @@ static void SPI2_Config(void)
 static void LCD_Pins_Init(void)
 {
     GPIO_Handle_t GPIOHandle;
+ 
 
     GPIOHandle.pGPIOx = GPIOD;
     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_OUT;
@@ -159,7 +194,11 @@ static void LCD_Pins_Init(void)
 void EXTI0_IRQHandler(void){
 
 	GPIO_IRQHandler(GPIO_PIN_NO_0);
-	found =ENABLE ;
+    uint32_t now = DWT_CYCCNT ; 
+    if(now  - last_press_time  > DEBOUNCE_CYCLES*5){ 
+        found =ENABLE ;
+        last_press_time = DWT_CYCCNT ; 
+    }
 }
 void EXTI2_IRQHandler(void){
 
@@ -173,6 +212,8 @@ void EXTI2_IRQHandler(void){
 		last_press_time_down = now;
 	}
 }
+
+
 void EXTI3_IRQHandler(void){
 
 	GPIO_IRQHandler(GPIO_PIN_NO_3);
@@ -200,7 +241,7 @@ void EXTI9_5_IRQHandler(void ){
     uint32_t  now = DWT_CYCCNT ;
     if((now - last_press_time_time)>DEBOUNCE_CYCLES){
         time_trigger = ENABLE ;
-        if(counter < COUNTER_MAX) counter = counter -  1 ;
+        if(counter >COUNTER_MIN) counter = counter -  1 ;
         last_press_time_time = now ;
     }
 }
@@ -226,36 +267,7 @@ void EXTI9_5_IRQHandler(void ){
         }
     }
 }
-/*USE THE FUNCTION TO CHECK   (1KHZ PWM WAVE )*/ 
-// void TIM3_GPIO_Init(void){
-//     GPIO_Handle_t GPIOHandle;
 
-//     GPIOHandle.pGPIOx = GPIOA;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_6;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF2;      // TIM3
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
-
-//     GPIO_Init(&GPIOHandle);
-// }
-
-// void TIM3_PWM_Init(void){
- 
-// RCC->APB1ENR |= (1 << 1);    
-
-// TIM3_PSC = 83;
-// TIM3_ARR = 999;
-// TIM3_CCR1 = 500;
-// TIM3_CCMR1 &= ~(7 << 4);
-// TIM3_CCMR1 |=  (6 << 4);       
-// TIM3_CCMR1 |= (1 << 3);       
-// TIM3_CCER |= (1 << 0);        
-// TIM3_CR1 |= (1 << 7);         
-// TIM3_EGR |= (1 << 0);          
-// TIM3_CR1 |= (1 << 0);     
-// }
 int main(void){
 
 //     TIM3_GPIO_Init();
@@ -341,8 +353,8 @@ int main(void){
     GPIO_IRQConfig(IRQ_NO_EXTI4, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI4, 5) ;
    
-    LCD_DrawLine(&LCD, 0,   160,  239, 160, LCD_COLOR_WHITE);
-    LCD_DrawLine(&LCD, 120,   0, 120, 319, LCD_COLOR_WHITE);
+    // LCD_DrawLine(&LCD, 0,   160,  239, 160, LCD_COLOR_WHITE);
+    // LCD_DrawLine(&LCD, 120,   0, 120, 319, LCD_COLOR_WHITE);
 
     GPIO_Handle_t TIME_DOWN_BUTTON ; 
     TIME_DOWN_BUTTON.pGPIOx = GPIOA ;
@@ -424,8 +436,7 @@ uint32_t end_time = DWT_CYCCNT;
                 LCD_WriteText(&LCD, 90, 220, "Vmin", LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 120, 220, str_two, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
 
-
-while(1){ 
+while(ENABLE){
      
     if(found ) break; 
 
