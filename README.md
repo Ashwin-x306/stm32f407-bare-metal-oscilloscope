@@ -15,6 +15,7 @@ vertical position (shift) via push buttons and interrupts.
 
 - **Real-time waveform capture & display** on a 240×320 ST7789 LCD over SPI2
 - **Auto Vmax / Vmin readout** of the captured buffer, shown in volts
+- **Auto Frequency Detection of the sampled ADC values
 - **Adjustable timebase** (ms/div) via up/down buttons (`EXTI9_5`)
 - **Adjustable vertical scale** (V/div) from a lookup table (10 mV/div → 5 V/div)
   via up/down buttons
