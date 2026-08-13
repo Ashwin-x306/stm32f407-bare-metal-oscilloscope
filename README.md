@@ -58,7 +58,7 @@ vertical position (shift) via push buttons and interrupts.
 ---
 ## Results
 
-<img src="1Khz%20PWM.jpg" alt="1Khz PWM Waveform" width="450">
+<img src="1Khz%20PWM.jpeg" alt="1Khz PWM Waveform" width="450">
 
 *1 kHz PWM signal captured and rendered on the ST7789 display, showing Vmax/Vmin, timebase, and V/div readout.*
 
