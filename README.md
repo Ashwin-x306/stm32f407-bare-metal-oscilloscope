@@ -13,18 +13,14 @@ vertical position (shift) via push buttons and interrupts.
 
 ## Features
 
-- **Real-time waveform capture & display** on a 240×320 ST7789 LCD over SPI2
-- **Auto Vmax / Vmin readout** of the captured buffer, shown in volts
-- **Auto Frequency Detection of the sampled ADC values
-- **Adjustable timebase** (ms/div) via up/down buttons (`EXTI9_5`)
-- **Adjustable vertical scale** (V/div) from a lookup table (10 mV/div → 5 V/div)
-  via up/down buttons
-- **Adjustable vertical position (shift)** of the trace via up/down buttons
-  (`EXTI2` / `EXTI3`)
-- **Debounced button inputs** using the DWT cycle counter (no blocking delays)
-- **Custom register-level drivers** for GPIO, SPI, and ADC (written from scratch,
-  no HAL)
-
+- **Real-time waveform capture & display** on a 240×320 ST7789 TFT via SPI2
+- **Automatic Vmax / Vmin measurement** from captured ADC samples, displayed in volts
+- **Frequency measurement** using threshold-crossing detection on sampled ADC data
+- **Adjustable timebase** (ms/div) using GPIO external interrupts (EXTI)
+- **Adjustable vertical scale** from 10 mV/div to 5 V/div using a configurable lookup table
+- **Adjustable vertical position** of the waveform using GPIO external interrupts
+- **Non-blocking button debouncing** using the Cortex-M4 DWT cycle counter
+- **Custom register-level drivers** for GPIO, SPI, ADC, and timers, developed from scratch without STM32 HAL/LL
 ---
 
 ## Hardware
