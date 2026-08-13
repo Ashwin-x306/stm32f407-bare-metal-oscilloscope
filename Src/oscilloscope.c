@@ -2,6 +2,10 @@
 #include "stm32f405xxx_gpio_driver.h"
 #include "stm32f405xxx_spi_driver.h"
 #include "stm32f405xxx_adc_driver.h"
+
+
+
+#include<stm32f405xxx_timer_driver.h>
 #include "ST7789.h"
 #include "sys_clock.h"
 //#include"fft.h"
@@ -18,7 +22,6 @@ uint8_t found = DISABLE ;
 uint8_t slide_trigger= DISABLE ; 
 #define SAMPLES 50000
 #define SCB_CPACR (*((volatile uint32_t *)0xE000ED88))
-
 #define PIXELS_PER_DIV 40.0f
 SPI_Handle_t SPIHandle;
 LCD_Handle_t LCD;
@@ -27,18 +30,38 @@ LCD_Handle_t LCD;
 #define DEMCR      (*(volatile uint32_t*)0xE000EDFC) 
 #define CLK_SPEED 168000000 
 
+
+
+
+#define THRESHOLD  1.8f 
+
 #define PI 3.14159265358979323846f
 #define TIM3_BASE_ADDR    0x40000400UL
 
+#define TIM2_BASE_ADDR       0x40000000UL
 
-#define TIM3_CR1      (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x00))
-#define TIM3_EGR      (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x14))
-#define TIM3_CCMR1    (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x18))
-#define TIM3_CCER     (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x20))
-#define TIM3_CNT      (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x24))
-#define TIM3_PSC      (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x28))
-#define TIM3_ARR      (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x2C))
-#define TIM3_CCR1     (*(volatile uint32_t *)(TIM3_BASE_ADDR + 0x34))
+#define TIM2_CR1             (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x00UL))
+
+#define TIM2_CCMR1           (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x18UL))
+
+#define TIM2_CCER            (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x20UL))
+
+#define TIM2_EGR             (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x14UL))
+
+#define TIM2_CNT             (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x24UL))
+
+#define TIM2_PSC             (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x28UL))
+
+#define TIM2_ARR             (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x2CUL))
+
+#define TIM2_CCR1            (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x34UL))
+
+#define TIM2_CCR2            (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x38UL))
+
+#define TIM2_CCR3            (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x3CUL))
+
+#define TIM2_CCR4            (*(volatile uint32_t *)(TIM2_BASE_ADDR + 0x40UL))
+
 
 uint16_t counter = 1;
 #define COUNTER_MAX 20  
@@ -50,7 +73,7 @@ uint8_t  time_trigger = DISABLE ;
 uint16_t shift = 100 ; 
 #define SHIFT_MIN 0
 #define SHIFT_MAX 300  
-
+uint8_t SAMPLE_TRIG =false;  
 static volatile uint32_t last_press_time =0  ; 
 static volatile uint32_t last_press_time_down = 0;
 static volatile uint32_t last_press_time_up   = 0;
@@ -73,7 +96,7 @@ const float volt_div_table[] =
     2.0f,
     5.0f
 };
-
+uint32_t INDEX  = 0 ;
 int8_t volt_div_index = 8;  
 static void cycle_init (void){
 
@@ -82,14 +105,18 @@ static void cycle_init (void){
     DWT_CTRL |= 1;   
 
 } 
-// //USE THE FUNCTION TO CHECK   (1KHZ PWM WAVE )*/ 
-// void TIM3_GPIO_Init(void){
+// void TIM2_GPIO_Init(void)
+// {
 //     GPIO_Handle_t GPIOHandle;
 
-//     GPIOHandle.pGPIOx = GPIOA;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_6;
+//     GPIOHandle.pGPIOx = GPIOB;
+
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_3;
 //     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF2;      // TIM3
+
+//     /* PB3 → TIM2_CH2 */
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF1;
+
 //     GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
 //     GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
 //     GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
@@ -97,23 +124,33 @@ static void cycle_init (void){
 //     GPIO_Init(&GPIOHandle);
 // }
 
-// void TIM3_PWM_Init(void){
- 
-// RCC->APB1ENR |= (1 << 1);    
+// void TIM2_PWM_Init(void)
+// {
+//     RCC->APB1ENR |= (1U << 0);
 
-// TIM3_PSC = 83;
-// TIM3_ARR = 999;
-// TIM3_CCR1 = 500;
-// TIM3_CCMR1 &= ~(7 << 4);
-// TIM3_CCMR1 |=  (6 << 4);       
-// TIM3_CCMR1 |= (1 << 3);       
-// TIM3_CCER |= (1 << 0);        
-// TIM3_CR1 |= (1 << 7);         
-// TIM3_EGR |= (1 << 0);          
-// TIM3_CR1 |= (1 << 0);     
+//     TIM2_PSC  = 83;      // 1 MHz counting clock (unchanged)
+//     TIM2_ARR  = 1999;    // 500 Hz period ← changed from 999
+//     TIM2_CCR2 = 999;     // 50% duty ← changed from 500
+
+//     /* PWM Mode 1, CH2 */
+//     TIM2_CCMR1 &= ~(7U << 12);
+//     TIM2_CCMR1 |=  (6U << 12);
+
+//     /* CH2 preload */
+//     TIM2_CCMR1 |= (1U << 11);
+
+//     /* Enable CH2 */
+//     TIM2_CCER |= (1U << 4);
+
+//     /* ARR preload */
+//     TIM2_CR1 |= (1U << 7);
+
+//     /* Generate update */
+//     TIM2_EGR |= (1U << 0);
+
+//     /* Start */
+//     TIM2_CR1 |= (1U << 0);
 // }
-
-
 static void SPI2_GPIO_Init(void)
 {
     GPIO_Handle_t GPIOHandle;
@@ -268,10 +305,18 @@ void EXTI9_5_IRQHandler(void ){
     }
 }
 
+void TIM3_IRQHandler(void ){ 
+
+    TIM3_ClearUpdateFlag() ; 
+    SAMPLE_TRIG =true ;   
+    INDEX++ ; 
+        
+}
+
 int main(void){
 
-//     TIM3_GPIO_Init();
-// TIM3_PWM_Init();
+    // TIM2_GPIO_Init();
+    // TIM2_PWM_Init();
     SCB_CPACR |= (0xF << 20) ;
 
     SystemClock_Config_168MHz();
@@ -319,6 +364,14 @@ int main(void){
   GPIO_Init(&USER_BUTTON ) ;
   GPIO_IRQConfig(IRQ_NO_EXTI0, ENABLE);
   GPIO_IRQPriorityConfig(IRQ_NO_EXTI0, 2);
+GPIO_Handle_t  LED_USER ; 
+LED_USER.pGPIOx = GPIOD ; 
+LED_USER.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_OUT ; 
+LED_USER.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_12 ; 
+LED_USER.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP ;
+LED_USER.GPIO_PinConfig.GPIO_PinSpeed  =GPIO_SPEED_FAST ; 
+LED_USER.GPIO_PinConfig.GPIO_PinPuPdControl=  GPIO_NO_PUPD ; 
+GPIO_Init(&LED_USER ) ; 
 
    
 
@@ -390,21 +443,48 @@ int main(void){
     GPIO_IRQConfig(IRQ_NO_EXTI9_5, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI9_5, 8) ;
 
-    
+    // timer init  section 
+
+    Timer_Handle_t TIMER3; 
+    TIMER3.TIM3_ARR_VALUE=  9 ; //  TO COUNT  UPTO 10us ;
+    TIMER3.TIM3_COUNTING_MODE = UPCOUNTING ; 
+    TIMER3.TIM3_PRES_Value = 83;  //  CLK_CNT = (CLK_OF THE MCU )  /(PRESCALER+1) ;
+    TIM3_Init(&TIMER3) ;  //  PRIPPERTY IS  9 ; 
 
    while(1){
 //  LCD_WriteText(&LCD , 100 , 210 , "V(in v) :", LCD_COLOR_WHITE ,  
                // LCD_COLOR_BLACK  ,1  ) ;
-    	       static uint16_t sample_value [SAMPLES] ;
-
-
+            GPIO_WriteToOutputPin(GPIOD ,  GPIO_PIN_NO_12 ,  DISABLE ) ; 
+    	       static uint16_t sample_value [SAMPLES] ; 
                cycle_init();
                 uint32_t start_time = DWT_CYCCNT;
-for (uint16_t i = 0; i < SAMPLES; i++) {
-                    ADC_StartConversion(&ADC1Handle);
-                    sample_value[i] = ADC_ReadValue(&ADC1Handle);
+                TIM3_StartCount(&TIMER3) ; 
+                while(INDEX<SAMPLES) { 
+    if(SAMPLE_TRIG ){
+                      ADC_StartConversion(&ADC1Handle);
+                      sample_value[INDEX] = ADC_ReadValue(&ADC1Handle);
+                      SAMPLE_TRIG = false ; 
                 }
-uint32_t end_time = DWT_CYCCNT;
+    }
+    uint32_t end_time = DWT_CYCCNT;
+    INDEX = 0 ; 
+    GPIO_WriteToOutputPin(GPIOD ,GPIO_PIN_NO_12, ENABLE ) ; 
+    TIM3_StopCount(&TIMER3) ; 
+    
+ float T_window =0.5f;  
+ float prev_temp_value = (float )sample_value[0]   *(3.3f)/(4095.0f) ; 
+ uint32_t crossing = 0 ;  
+ for(uint32_t  i = 1 ; i<SAMPLES ; i++){
+     float invalue = (float )sample_value[i] *3.3f/4095.0f; //  12 bit res  
+     if(invalue >=THRESHOLD  &&  prev_temp_value <THRESHOLD)crossing++ ; 
+     prev_temp_value = invalue ; 
+
+ }
+
+ float frequceny_measured = (float )crossing/T_window ; 
+ char str_freq[20] ;
+ snprintf(str_freq ,  sizeof(str_freq) ,  "%.2f Hz" ,  frequceny_measured) ; 
+   
  float total_time_s = (float)(end_time - start_time) / (float)CLK_SPEED;
                 float sample_rate   = (float)SAMPLES / total_time_s;
                 uint16_t v_max = sample_value[0];
@@ -500,9 +580,11 @@ while(ENABLE){
                 LCD_WriteText(&LCD, 50, 220, str_one, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 90, 220, "Vmin", LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 120, 220, str_two, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
+               
     }
     float time_per_div = 0.001f* ((float)counter);        
     float samples_per_div = sample_rate * time_per_div;
+    
 
     float samples_per_pixel = samples_per_div / PIXELS_PER_DIV;
 
@@ -515,7 +597,10 @@ snprintf(str_three,sizeof(str_three), "%.2f ms/div", time_per_div * 1000.0f);
 LCD_WriteText(&LCD, 160, 220, str_three,LCD_COLOR_BLACK,LCD_COLOR_YELLOW, 1);
 char str_four[20] ; 
 snprintf(str_four,sizeof(str_four), "%.2f V/div", volt_div_table[volt_div_index]) ;
+
 LCD_WriteText(&LCD, 240, 220, str_four,LCD_COLOR_BLACK,LCD_COLOR_YELLOW, 1);
+LCD_WriteText(&LCD ,  20  ,20 ,  "Freq" ,  LCD_COLOR_WHITE ,  LCD_COLOR_BLACK ,1 ) ; 
+LCD_WriteText(&LCD ,70  ,20 , str_freq , LCD_COLOR_WHITE ,  LCD_COLOR_BLACK , 1 ) ; 
 
 float count = 0.0f;
 for(uint16_t i = 0; i < LCD_HEIGHT; i++){
