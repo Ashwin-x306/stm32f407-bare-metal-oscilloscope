@@ -106,52 +106,52 @@ static void cycle_init (void){
     DWT_CTRL |= 1;   
 
 } 
-void TIM2_GPIO_Init(void)
-{
-    GPIO_Handle_t GPIOHandle;
+// void TIM2_GPIO_Init(void)
+// {
+//     GPIO_Handle_t GPIOHandle;
 
-    GPIOHandle.pGPIOx = GPIOB;
+//     GPIOHandle.pGPIOx = GPIOB;
 
-    GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_3;
-    GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_3;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
 
-    /* PB3 → TIM2_CH2 */
-    GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF1;
+//     /* PB3 → TIM2_CH2 */
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF1;
 
-    GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
-    GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
-    GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
+//     GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
 
-    GPIO_Init(&GPIOHandle);
-}
+//     GPIO_Init(&GPIOHandle);
+// }
 
-void TIM2_PWM_Init(void)
-{
-    RCC->APB1ENR |= (1U << 0);
+// void TIM2_PWM_Init(void)
+// {
+//     RCC->APB1ENR |= (1U << 0);
 
-    TIM2_PSC  = 83;      // 1 MHz counting clock (unchanged)
-    TIM2_ARR  = 99;    // 500 Hz period ← changed from 999
-    TIM2_CCR2 = 49;     // 50% duty ← changed from 500
+//     TIM2_PSC  = 83;  
+//     TIM2_ARR  = 99;  
+//     TIM2_CCR2 = 49;     
 
-    /* PWM Mode 1, CH2 */
-    TIM2_CCMR1 &= ~(7U << 12);
-    TIM2_CCMR1 |=  (6U << 12);
+//     /* PWM Mode 1, CH2 */
+//     TIM2_CCMR1 &= ~(7U << 12);
+//     TIM2_CCMR1 |=  (6U << 12);
 
-    /* CH2 preload */
-    TIM2_CCMR1 |= (1U << 11);
+//     /* CH2 preload */
+//     TIM2_CCMR1 |= (1U << 11);
 
-    /* Enable CH2 */
-    TIM2_CCER |= (1U << 4);
+//     /* Enable CH2 */
+//     TIM2_CCER |= (1U << 4);
 
-    /* ARR preload */
-    TIM2_CR1 |= (1U << 7);
+//     /* ARR preload */
+//     TIM2_CR1 |= (1U << 7);
 
-    /* Generate update */
-    TIM2_EGR |= (1U << 0);
+//     /* Generate update */
+//     TIM2_EGR |= (1U << 0);
 
-    /* Start */
-    TIM2_CR1 |= (1U << 0);
-}
+//     /* Start */
+//     TIM2_CR1 |= (1U << 0);
+// }
 static void SPI2_GPIO_Init(void)
 {
     GPIO_Handle_t GPIOHandle;
@@ -315,8 +315,8 @@ void TIM3_IRQHandler(void ){
 
 int main(void){
 
-     TIM2_GPIO_Init();
-     TIM2_PWM_Init();
+    // TIM2_GPIO_Init();
+    // TIM2_PWM_Init();
     SCB_CPACR |= (0xF << 20) ;
 
     SystemClock_Config_168MHz();
