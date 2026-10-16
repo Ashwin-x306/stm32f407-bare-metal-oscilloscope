@@ -12,29 +12,29 @@
 #include <stdio.h>
 #include<stdint.h>
 #include<stdbool.h>
-//#include<math.h>
+#include<math.h>            /* CHANGED: enabled (sinf/cosf/sqrtf for the FFT) */
 //GLOBAL VARIABLE ;
-#define SIGNAL_FREQ_HZ   1000     
-//#define TEST_SAMPLE_RATE 100000   
-#define ADC_MAX_VALUE    4095     
-#define ADC_MID_VALUE    2048      
+#define SIGNAL_FREQ_HZ   1000
+//#define TEST_SAMPLE_RATE 100000
+#define ADC_MAX_VALUE    4095
+#define ADC_MID_VALUE    2048
 uint8_t found = DISABLE ;
-uint8_t slide_trigger= DISABLE ; 
-#define SAMPLES 50000
+uint8_t slide_trigger= DISABLE ;
+#define SAMPLES 4096
 #define SCB_CPACR (*((volatile uint32_t *)0xE000ED88))
 #define PIXELS_PER_DIV 40.0f
 SPI_Handle_t SPIHandle;
 LCD_Handle_t LCD;
 #define DWT_CTRL   (*(volatile uint32_t*)0xE0001000)
 #define DWT_CYCCNT (*(volatile uint32_t*)0xE0001004)
-#define DEMCR      (*(volatile uint32_t*)0xE000EDFC) 
-#define CLK_SPEED 168000000 
-const float time_div [] = {0.02 ,  0.04 ,  0.06 , 0.08 , 0.1 ,  0.2  ,  0.5 ,  1 , 2, 5 } ; 
+#define DEMCR      (*(volatile uint32_t*)0xE000EDFC)
+#define CLK_SPEED 168000000
+const float time_div [] = {0.02 ,  0.04 ,  0.06 , 0.08 , 0.1 ,  0.2  ,  0.5 ,  1 , 2, 5 } ;
 
 
 
 
-#define THRESHOLD  1.8f 
+#define THRESHOLD  1.8f
 
 #define PI 3.14159265358979323846f
 #define TIM3_BASE_ADDR    0x40000400UL
@@ -65,26 +65,27 @@ const float time_div [] = {0.02 ,  0.04 ,  0.06 , 0.08 , 0.1 ,  0.2  ,  0.5 ,  1
 
 
 uint16_t counter = 1;
-#define COUNTER_MAX sizeof(time_div)/sizeof(time_div[0])   
+#define COUNTER_MAX sizeof(time_div)/sizeof(time_div[0])
 
-#define COUNTER_MIN 0 
+#define COUNTER_MIN 0
 
-uint8_t  SLIDE = 5;  
+uint8_t  SLIDE = 5;
 uint8_t  time_trigger = DISABLE ;
-uint16_t shift = 100 ; 
+uint16_t shift = 100 ;
 #define SHIFT_MIN 0
-#define SHIFT_MAX 300  
-uint8_t SAMPLE_TRIG =false;  
-static volatile uint32_t last_press_time =0  ; 
+#define SHIFT_MAX 300
+uint8_t SAMPLE_TRIG =false;
+static volatile uint32_t last_press_time =0  ;
 static volatile uint32_t last_press_time_down = 0;
 static volatile uint32_t last_press_time_up   = 0;
 static volatile uint32_t last_press_time_time = 0;
 
 static uint32_t last_press_time_6 = 0;
 static uint32_t last_press_time_7 = 0;
-#define DEBOUNCE_CYCLES (CLK_SPEED / 5)   
-uint8_t  VOLTAGE_PER_DIV_INC = DISABLE ; 
-uint8_t  VOLTAGE_PER_DIV_DEC = DISABLE ; 
+static uint32_t last_press_time_9 = 0;      /* ADDED: PA9 debounce */
+#define DEBOUNCE_CYCLES (CLK_SPEED / 5)
+uint8_t  VOLTAGE_PER_DIV_INC = DISABLE ;
+uint8_t  VOLTAGE_PER_DIV_DEC = DISABLE ;
 const float volt_div_table[] =
 {
     0.01f,
@@ -98,60 +99,126 @@ const float volt_div_table[] =
     5.0f
 };
 uint32_t INDEX  = 0 ;
-int8_t volt_div_index = 8;  
+int8_t volt_div_index = 8;
+
+/* ===================== ADDED: FFT section ===================== */
+#define FFT_N 4096                       /* power of 2, uses the first FFT_N samples */
+volatile uint8_t fft_mode = DISABLE ;    /* DISABLE = time domain, ENABLE = frequency domain (PA9) */
+static float fft_re[FFT_N];
+static float fft_im[FFT_N];
+static float fft_peak_mag = 1.0f ;
+static uint32_t fft_peak_bin = 0 ;
+
+/* result: magnitude in fft_re[0 .. FFT_N/2-1] */
+static void FFT_Compute(const uint16_t *in)
+{
+    /* remove DC + Hann window */
+    float mean = 0.0f;
+    for(uint32_t n = 0; n < FFT_N; n++) mean += (float)in[n];
+    mean /= (float)FFT_N;
+
+    for(uint32_t n = 0; n < FFT_N; n++){
+        float w = 0.5f - 0.5f * cosf(2.0f * PI * (float)n / (float)(FFT_N - 1));
+        fft_re[n] = ((float)in[n] - mean) * 3.3f / 4095.0f * w;
+        fft_im[n] = 0.0f;
+    }
+
+    /* bit reversal */
+    uint32_t j = 0;
+    for(uint32_t i = 0; i < FFT_N - 1; i++){
+        if(i < j){
+            float t = fft_re[i]; fft_re[i] = fft_re[j]; fft_re[j] = t;
+            t = fft_im[i]; fft_im[i] = fft_im[j]; fft_im[j] = t;
+        }
+        uint32_t m = FFT_N >> 1;
+        while(m >= 1 && j >= m){ j -= m; m >>= 1; }
+        j += m;
+    }
+
+    /* radix-2 butterflies */
+    for(uint32_t len = 2; len <= FFT_N; len <<= 1){
+        float ang = -2.0f * PI / (float)len;
+        float wr = cosf(ang), wi = sinf(ang);
+        for(uint32_t i = 0; i < FFT_N; i += len){
+            float cr = 1.0f, ci = 0.0f;
+            for(uint32_t k = 0; k < len/2; k++){
+                uint32_t a = i + k, b = i + k + len/2;
+                float tr = fft_re[b]*cr - fft_im[b]*ci;
+                float ti = fft_re[b]*ci + fft_im[b]*cr;
+                fft_re[b] = fft_re[a] - tr;  fft_im[b] = fft_im[a] - ti;
+                fft_re[a] = fft_re[a] + tr;  fft_im[a] = fft_im[a] + ti;
+                float ncr = cr*wr - ci*wi;
+                ci = cr*wi + ci*wr;
+                cr = ncr;
+            }
+        }
+    }
+
+    /* magnitude + peak (skip DC bin) */
+    fft_peak_mag = 1e-9f;
+    fft_peak_bin = 1;
+    fft_re[0] = 0.0f;
+    for(uint32_t k = 1; k < FFT_N/2; k++){
+        float m = sqrtf(fft_re[k]*fft_re[k] + fft_im[k]*fft_im[k]);
+        fft_re[k] = m;
+        if(m > fft_peak_mag){ fft_peak_mag = m; fft_peak_bin = k; }
+    }
+}
+/* =============================================================== */
+
 static void cycle_init (void){
 
-    DEMCR |= (1 << 24);     
+    DEMCR |= (1 << 24);
     DWT_CYCCNT = 0;
-    DWT_CTRL |= 1;   
+    DWT_CTRL |= 1;
 
-} 
-// void TIM2_GPIO_Init(void)
-// {
-//     GPIO_Handle_t GPIOHandle;
+}
+ void TIM2_GPIO_Init(void)
+ {
+     GPIO_Handle_t GPIOHandle;
 
-//     GPIOHandle.pGPIOx = GPIOB;
+     GPIOHandle.pGPIOx = GPIOB;
 
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_3;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
+     GPIOHandle.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_3;
+     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_ALTFN;
 
-//     /* PB3 → TIM2_CH2 */
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF1;
+     /* PB3 → TIM2_CH2 */
+     GPIOHandle.GPIO_PinConfig.GPIO_PinAltFunMode = GPIO_AF1;
 
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
-//     GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
+     GPIOHandle.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP;
+     GPIOHandle.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_NO_PUPD;
+     GPIOHandle.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST;
 
-//     GPIO_Init(&GPIOHandle);
-// }
+     GPIO_Init(&GPIOHandle);
+ }
 
-// void TIM2_PWM_Init(void)
-// {
-//     RCC->APB1ENR |= (1U << 0);
+ void TIM2_PWM_Init(void)
+ {
+     RCC->APB1ENR |= (1U << 0);
 
-//     TIM2_PSC  = 83;  
-//     TIM2_ARR  = 99;  
-//     TIM2_CCR2 = 49;     
+     TIM2_PSC  = 83;
+     TIM2_ARR  = 99;
+     TIM2_CCR2 = 49;
 
-//     /* PWM Mode 1, CH2 */
-//     TIM2_CCMR1 &= ~(7U << 12);
-//     TIM2_CCMR1 |=  (6U << 12);
+     /* PWM Mode 1, CH2 */
+     TIM2_CCMR1 &= ~(7U << 12);
+     TIM2_CCMR1 |=  (6U << 12);
 
-//     /* CH2 preload */
-//     TIM2_CCMR1 |= (1U << 11);
+     /* CH2 preload */
+     TIM2_CCMR1 |= (1U << 11);
 
-//     /* Enable CH2 */
-//     TIM2_CCER |= (1U << 4);
+     /* Enable CH2 */
+     TIM2_CCER |= (1U << 4);
 
-//     /* ARR preload */
-//     TIM2_CR1 |= (1U << 7);
+     /* ARR preload */
+     TIM2_CR1 |= (1U << 7);
 
-//     /* Generate update */
-//     TIM2_EGR |= (1U << 0);
+     /* Generate update */
+     TIM2_EGR |= (1U << 0);
 
-//     /* Start */
-//     TIM2_CR1 |= (1U << 0);
-// }
+     /* Start */
+     TIM2_CR1 |= (1U << 0);
+ }
 static void SPI2_GPIO_Init(void)
 {
     GPIO_Handle_t GPIOHandle;
@@ -192,7 +259,7 @@ static void SPI2_Config(void)
 static void LCD_Pins_Init(void)
 {
     GPIO_Handle_t GPIOHandle;
- 
+
 
     GPIOHandle.pGPIOx = GPIOD;
     GPIOHandle.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_OUT;
@@ -232,10 +299,10 @@ static void LCD_Pins_Init(void)
 void EXTI0_IRQHandler(void){
 
 	GPIO_IRQHandler(GPIO_PIN_NO_0);
-    uint32_t now = DWT_CYCCNT ; 
-    if(now  - last_press_time  > DEBOUNCE_CYCLES*5){ 
+    uint32_t now = DWT_CYCCNT ;
+    if(now  - last_press_time  > DEBOUNCE_CYCLES*5){
         found =ENABLE ;
-        last_press_time = DWT_CYCCNT ; 
+        last_press_time = DWT_CYCCNT ;
     }
 }
 void EXTI2_IRQHandler(void){
@@ -244,7 +311,7 @@ void EXTI2_IRQHandler(void){
 
 	uint32_t now = DWT_CYCCNT;
 	if ((now - last_press_time_down) > DEBOUNCE_CYCLES) {
-	
+
 		if (shift > SHIFT_MIN) shift = shift - 5;
 		slide_trigger = ENABLE;
 		last_press_time_down = now;
@@ -304,19 +371,29 @@ void EXTI9_5_IRQHandler(void ){
             last_press_time_7 = now;
         }
     }
+
+    /* ADDED: PA9 -> toggle time domain / frequency domain */
+    if(EXTI->PR & (1 << 9)) {
+        GPIO_IRQHandler(GPIO_PIN_NO_9);
+        if((now - last_press_time_9) > DEBOUNCE_CYCLES){
+            fft_mode = !fft_mode ;
+            slide_trigger = ENABLE ;     /* forces a clear + redraw */
+            last_press_time_9 = now;
+        }
+    }
 }
 
-void TIM3_IRQHandler(void ){ 
+void TIM3_IRQHandler(void ){
 
-    TIM3_ClearUpdateFlag() ; 
-    SAMPLE_TRIG =true ;   
+    TIM3_ClearUpdateFlag() ;
+    SAMPLE_TRIG =true ;
 
 }
 
 int main(void){
 
-    // TIM2_GPIO_Init();
-    // TIM2_PWM_Init();
+     TIM2_GPIO_Init();
+     TIM2_PWM_Init();
     SCB_CPACR |= (0xF << 20) ;
 
     SystemClock_Config_168MHz();
@@ -364,20 +441,20 @@ int main(void){
   GPIO_Init(&USER_BUTTON ) ;
   GPIO_IRQConfig(IRQ_NO_EXTI0, ENABLE);
   GPIO_IRQPriorityConfig(IRQ_NO_EXTI0, 2);
-GPIO_Handle_t  LED_USER ; 
-LED_USER.pGPIOx = GPIOD ; 
-LED_USER.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_OUT ; 
-LED_USER.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_12 ; 
+GPIO_Handle_t  LED_USER ;
+LED_USER.pGPIOx = GPIOD ;
+LED_USER.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_OUT ;
+LED_USER.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_12 ;
 LED_USER.GPIO_PinConfig.GPIO_PinOPType = GPIO_OP_TYPE_PP ;
-LED_USER.GPIO_PinConfig.GPIO_PinSpeed  =GPIO_SPEED_FAST ; 
-LED_USER.GPIO_PinConfig.GPIO_PinPuPdControl=  GPIO_NO_PUPD ; 
-GPIO_Init(&LED_USER ) ; 
+LED_USER.GPIO_PinConfig.GPIO_PinSpeed  =GPIO_SPEED_FAST ;
+LED_USER.GPIO_PinConfig.GPIO_PinPuPdControl=  GPIO_NO_PUPD ;
+GPIO_Init(&LED_USER ) ;
 
-   
 
-  //  slide down and slide up button  ; 
-  GPIO_Handle_t  SLIDE_DOWN_BUTTON ; 
-    SLIDE_DOWN_BUTTON.pGPIOx = GPIOA ; 
+
+  //  slide down and slide up button  ;
+  GPIO_Handle_t  SLIDE_DOWN_BUTTON ;
+    SLIDE_DOWN_BUTTON.pGPIOx = GPIOA ;
     SLIDE_DOWN_BUTTON.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
     SLIDE_DOWN_BUTTON.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_2 ;
     SLIDE_DOWN_BUTTON.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_PIN_PD ;
@@ -385,7 +462,7 @@ GPIO_Init(&LED_USER ) ;
     GPIO_Init(&SLIDE_DOWN_BUTTON) ;
     GPIO_IRQConfig(IRQ_NO_EXTI2, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI2, 3) ;
-    
+
     GPIO_Handle_t SLIDE_UP_BUTTON ;
     SLIDE_UP_BUTTON.pGPIOx = GPIOA ;
     SLIDE_UP_BUTTON.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
@@ -396,7 +473,7 @@ GPIO_Init(&LED_USER ) ;
     GPIO_IRQConfig(IRQ_NO_EXTI3, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI3, 4) ;
 
-    GPIO_Handle_t TIME_BUTTON ; 
+    GPIO_Handle_t TIME_BUTTON ;
     TIME_BUTTON.pGPIOx = GPIOA ;
     TIME_BUTTON.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
     TIME_BUTTON.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_4 ;
@@ -405,11 +482,11 @@ GPIO_Init(&LED_USER ) ;
     GPIO_Init(&TIME_BUTTON) ;
     GPIO_IRQConfig(IRQ_NO_EXTI4, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI4, 5) ;
-   
+
     // LCD_DrawLine(&LCD, 0,   160,  239, 160, LCD_COLOR_WHITE);
     // LCD_DrawLine(&LCD, 120,   0, 120, 319, LCD_COLOR_WHITE);
 
-    GPIO_Handle_t TIME_DOWN_BUTTON ; 
+    GPIO_Handle_t TIME_DOWN_BUTTON ;
     TIME_DOWN_BUTTON.pGPIOx = GPIOA ;
     TIME_DOWN_BUTTON.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
     TIME_DOWN_BUTTON.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_5 ;
@@ -422,8 +499,8 @@ GPIO_Init(&LED_USER ) ;
 
 
 
-    GPIO_Handle_t VOLTAGE_BUTTON_DOWN ; 
-    VOLTAGE_BUTTON_DOWN.pGPIOx = GPIOA; 
+    GPIO_Handle_t VOLTAGE_BUTTON_DOWN ;
+    VOLTAGE_BUTTON_DOWN.pGPIOx = GPIOA;
     VOLTAGE_BUTTON_DOWN.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
     VOLTAGE_BUTTON_DOWN.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_8 ;
     VOLTAGE_BUTTON_DOWN.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_PIN_PD ;
@@ -433,8 +510,8 @@ GPIO_Init(&LED_USER ) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI9_5, 7) ;
 
 
-     GPIO_Handle_t VOLTAGE_BUTTON_UP ; 
-    VOLTAGE_BUTTON_UP.pGPIOx = GPIOA; 
+     GPIO_Handle_t VOLTAGE_BUTTON_UP ;
+    VOLTAGE_BUTTON_UP.pGPIOx = GPIOA;
     VOLTAGE_BUTTON_UP.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
     VOLTAGE_BUTTON_UP.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_7 ;
     VOLTAGE_BUTTON_UP.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_PIN_PD ;
@@ -443,54 +520,71 @@ GPIO_Init(&LED_USER ) ;
     GPIO_IRQConfig(IRQ_NO_EXTI9_5, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI9_5, 8) ;
 
-    // timer init  section 
+    /* ADDED: PA9 button -> FFT / time-domain toggle (EXTI9, shares EXTI9_5 line) */
+    GPIO_Handle_t FFT_BUTTON ;
+    FFT_BUTTON.pGPIOx = GPIOA;
+    FFT_BUTTON.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
+    FFT_BUTTON.GPIO_PinConfig.GPIO_PinNumber = GPIO_PIN_NO_9 ;
+    FFT_BUTTON.GPIO_PinConfig.GPIO_PinPuPdControl = GPIO_PIN_PD ;
+    FFT_BUTTON.GPIO_PinConfig.GPIO_PinSpeed = GPIO_SPEED_FAST ;
+    GPIO_Init(&FFT_BUTTON) ;
+    GPIO_IRQConfig(IRQ_NO_EXTI9_5, ENABLE) ;
+    GPIO_IRQPriorityConfig(IRQ_NO_EXTI9_5, 8) ;
 
-    Timer_Handle_t TIMER3; 
+    // timer init  section
+
+    Timer_Handle_t TIMER3;
     TIMER3.TIM3_ARR_VALUE=  9 ; //  TO COUNT  UPTO 10us ;
-    TIMER3.TIM3_COUNTING_MODE = UPCOUNTING ; 
+    TIMER3.TIM3_COUNTING_MODE = UPCOUNTING ;
     TIMER3.TIM3_PRES_Value = 83;  //  CLK_CNT = (CLK_OF THE MCU )  /(PRESCALER+1) ;
-    TIM3_Init(&TIMER3) ;  //  PRIPPERTY IS  9 ; 
+    TIM3_Init(&TIMER3) ;  //  PRIPPERTY IS  9 ;
+
+
+
+
+
+
 
    while(1){
-//  LCD_WriteText(&LCD , 100 , 210 , "V(in v) :", LCD_COLOR_WHITE ,  
+//  LCD_WriteText(&LCD , 100 , 210 , "V(in v) :", LCD_COLOR_WHITE ,
                // LCD_COLOR_BLACK  ,1  ) ;
-            GPIO_WriteToOutputPin(GPIOD ,  GPIO_PIN_NO_12 ,  DISABLE ) ; 
-    	       static uint16_t sample_value [SAMPLES] ; 
+            GPIO_WriteToOutputPin(GPIOD ,  GPIO_PIN_NO_12 ,  DISABLE ) ;
+    	       static uint16_t sample_value [SAMPLES] ;
                cycle_init();
                 uint32_t start_time = DWT_CYCCNT;
-                TIM3_StartCount(&TIMER3) ; 
-                while(INDEX<SAMPLES) { 
+                TIM3_StartCount(&TIMER3) ;
+                while(INDEX<SAMPLES) {
     if(SAMPLE_TRIG ){
                       ADC_StartConversion(&ADC1Handle);
                       sample_value[INDEX] = ADC_ReadValue(&ADC1Handle);
-                      SAMPLE_TRIG = false ; 
-                      INDEX++ ; 
+                      SAMPLE_TRIG = false ;
+                      INDEX++ ;
                 }
     }
     uint32_t end_time = DWT_CYCCNT;
-    INDEX = 0 ; 
-    GPIO_WriteToOutputPin(GPIOD ,GPIO_PIN_NO_12, ENABLE ) ; 
-    TIM3_StopCount(&TIMER3) ; 
+    INDEX = 0 ;
+    GPIO_WriteToOutputPin(GPIOD ,GPIO_PIN_NO_12, ENABLE ) ;
+    TIM3_StopCount(&TIMER3) ;
 
     float total_time_s = (float)(end_time - start_time) / (float)CLK_SPEED;
     float sample_rate   = (float)SAMPLES / total_time_s;
 
     uint32_t total_cycles      = end_time - start_time;
     float    cycles_per_sample = (float)total_cycles / (float)SAMPLES;
-    
- float prev_temp_value = (float )sample_value[0]   *(3.3f)/(4095.0f) ; 
- uint32_t crossing = 0 ;  
+
+ float prev_temp_value = (float )sample_value[0]   *(3.3f)/(4095.0f) ;
+ uint32_t crossing = 0 ;
  for(uint32_t  i = 1 ; i<SAMPLES ; i++){
-     float invalue = (float )sample_value[i] *3.3f/4095.0f; //  12 bit res  
-     if(invalue >=THRESHOLD  &&  prev_temp_value <THRESHOLD)crossing++ ; 
-     prev_temp_value = invalue ; 
+     float invalue = (float )sample_value[i] *3.3f/4095.0f; //  12 bit res
+     if(invalue >=THRESHOLD  &&  prev_temp_value <THRESHOLD)crossing++ ;
+     prev_temp_value = invalue ;
 
  }
 
- float frequceny_measured = (float )crossing/total_time_s ; 
+ float frequceny_measured = (float )crossing/total_time_s ;
  char str_freq[20] ;
- snprintf(str_freq ,  sizeof(str_freq) ,  "%.2f Hz" ,  frequceny_measured) ; 
-   
+ snprintf(str_freq ,  sizeof(str_freq) ,  "%.2f Hz" ,  frequceny_measured) ;
+
                 uint16_t v_max = sample_value[0];
                 uint16_t v_min = sample_value[0];
                 for (uint16_t i = 1; i < SAMPLES; i++) {
@@ -499,7 +593,7 @@ GPIO_Init(&LED_USER ) ;
                 }
 
                 char str_one[20], str_two[20];
-                float v_max_value = (v_max * 3.3f) / 4095.0f;  
+                float v_max_value = (v_max * 3.3f) / 4095.0f;
                 float v_min_value = (v_min * 3.3f) / 4095.0f;
                 snprintf(str_one, sizeof(str_one), "%.2f", v_max_value);
                 snprintf(str_two, sizeof(str_two), "%.2f", v_min_value);
@@ -520,9 +614,11 @@ GPIO_Init(&LED_USER ) ;
                 LCD_WriteText(&LCD, 90, 220, "Vmin", LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 120, 220, str_two, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
 
+bool fft_ready = false ;      /* ADDED: FFT is computed once per capture, when first needed */
+
 while(ENABLE){
-     
-    if(found ) break; 
+
+    if(found) break;
 
     if(slide_trigger || time_trigger){
             slide_trigger = DISABLE ;
@@ -546,8 +642,8 @@ while(ENABLE){
     }
               float scale = (40.f/  volt_div_table[volt_div_index]) ;
     if(VOLTAGE_PER_DIV_INC){
-        VOLTAGE_PER_DIV_INC = DISABLE ; 
-        scale = (40.0f /volt_div_table[volt_div_index]) ;    
+        VOLTAGE_PER_DIV_INC = DISABLE ;
+        scale = (40.0f /volt_div_table[volt_div_index]) ;
          LCD_FillColor(&LCD,  LCD_COLOR_BLACK) ;
     	    	for(uint16_t y = 0; y < 320; y += 40){
     	    	    for(uint16_t x = 0; x < 240; x += 8){
@@ -566,8 +662,8 @@ while(ENABLE){
                 LCD_WriteText(&LCD, 120, 220, str_two, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
     }
     if(VOLTAGE_PER_DIV_DEC){
-        VOLTAGE_PER_DIV_DEC = DISABLE ; 
-        scale = (40.0f /volt_div_table[volt_div_index]) ;  
+        VOLTAGE_PER_DIV_DEC = DISABLE ;
+        scale = (40.0f /volt_div_table[volt_div_index]) ;
          LCD_FillColor(&LCD,  LCD_COLOR_BLACK) ;
     	    	for(uint16_t y = 0; y < 320; y += 40){
     	    	    for(uint16_t x = 0; x < 240; x += 8){
@@ -584,12 +680,12 @@ while(ENABLE){
                 LCD_WriteText(&LCD, 50, 220, str_one, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 90, 220, "Vmin", LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 120, 220, str_two, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
-               
+
     }
  float temp = ( time_div[counter] * 1000.0f * (float)CLK_SPEED )
               / ( 1000000.0f * cycles_per_sample );
 
- float gap = 40.0f /  temp ; 
+ float gap = 40.0f /  temp ;
 
 
                 uint16_t prev_x = 0, prev_y = 0;
@@ -597,13 +693,54 @@ while(ENABLE){
                 char str_three[20];
 snprintf(str_three,sizeof(str_three), "%.2f us/div", time_div[counter ]* 1000.0f);
 LCD_WriteText(&LCD, 160, 220, str_three,LCD_COLOR_BLACK,LCD_COLOR_YELLOW, 1);
-char str_four[20] ; 
+char str_four[20] ;
 snprintf(str_four,sizeof(str_four), "%.2f V/div", volt_div_table[volt_div_index]) ;
 
 LCD_WriteText(&LCD, 240, 220, str_four,LCD_COLOR_BLACK,LCD_COLOR_YELLOW, 1);
-LCD_WriteText(&LCD ,  20  ,20 ,  "Freq" ,  LCD_COLOR_WHITE ,  LCD_COLOR_BLACK ,1 ) ; 
-LCD_WriteText(&LCD ,70  ,20 , str_freq , LCD_COLOR_WHITE ,  LCD_COLOR_BLACK , 1 ) ; 
+LCD_WriteText(&LCD ,  20  ,20 ,  "Freq" ,  LCD_COLOR_WHITE ,  LCD_COLOR_BLACK ,1 ) ;
+LCD_WriteText(&LCD ,70  ,20 , str_freq , LCD_COLOR_WHITE ,  LCD_COLOR_BLACK , 1 ) ;
 
+if(fft_mode){
+
+    if(!fft_ready){
+        FFT_Compute(sample_value);      /* uses the first FFT_N samples */
+        fft_ready = true ;
+    }
+
+    float peak_hz = (float)fft_peak_bin * sample_rate / (float)FFT_N ;
+    char str_peak[24] ;
+    if(peak_hz >= 1000.0f)
+        snprintf(str_peak, sizeof(str_peak), "%.2f kHz", peak_hz/1000.0f) ;
+    else
+        snprintf(str_peak, sizeof(str_peak), "%.1f Hz", peak_hz) ;
+    LCD_WriteText(&LCD, 20, 40, "Peak", LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+    LCD_WriteText(&LCD, 70, 40, str_peak, LCD_COLOR_WHITE, LCD_COLOR_BLACK, 1);
+    for(uint16_t i = 0; i < LCD_HEIGHT; i++){
+        uint32_t lo = (uint32_t)i       * (FFT_N/2) / LCD_HEIGHT;
+        uint32_t hi = (uint32_t)(i + 1) * (FFT_N/2) / LCD_HEIGHT;
+        if(hi <= lo) hi = lo + 1;
+
+        float m = 0.0f;
+        for(uint32_t k = lo; k < hi; k++){
+            if(fft_re[k] > m) m = fft_re[k];
+        }
+
+        uint16_t y = (uint16_t)((m / fft_peak_mag) * 190.0f);
+        LCD_DrawPixel(&LCD, y, i, LCD_COLOR_GREEN);
+
+        if(first_point){
+            prev_x = y; prev_y = i; first_point = false;
+        }
+        else{
+            LCD_DrawLine(&LCD, prev_x, prev_y, y, i,LCD_COLOR_GREEN);
+            prev_x = y;
+            prev_y = i;
+        }
+    }
+}
+else
+{
+/* ==================== TIME DOMAIN PLOT (unchanged) ==================== */
 float count = 0.0f;
 for(float fi = 0.0f; fi < (float)LCD_HEIGHT; fi = fi + gap){
     uint16_t i = (uint16_t)fi;
@@ -626,12 +763,13 @@ for(float fi = 0.0f; fi < (float)LCD_HEIGHT; fi = fi + gap){
        if(count+1.0f>=50000.0f){
         count = 50000.0f  ;
        }
-       else  count = count+1.0f ; 
+       else  count = count+1.0f ;
  }
+}
 
 }
  found = DISABLE;
 
     	   }
-      return 0 ; 
+      return 0 ;
     }
