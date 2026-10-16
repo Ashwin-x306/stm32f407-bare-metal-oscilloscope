@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include<stdint.h>
 #include<stdbool.h>
-#include<math.h>            /* CHANGED: enabled (sinf/cosf/sqrtf for the FFT) */
+#include<math.h>           
 //GLOBAL VARIABLE ;
 #define SIGNAL_FREQ_HZ   1000
 //#define TEST_SAMPLE_RATE 100000
@@ -82,7 +82,7 @@ static volatile uint32_t last_press_time_time = 0;
 
 static uint32_t last_press_time_6 = 0;
 static uint32_t last_press_time_7 = 0;
-static uint32_t last_press_time_9 = 0;      /* ADDED: PA9 debounce */
+static uint32_t last_press_time_9 = 0;      
 #define DEBOUNCE_CYCLES (CLK_SPEED / 5)
 uint8_t  VOLTAGE_PER_DIV_INC = DISABLE ;
 uint8_t  VOLTAGE_PER_DIV_DEC = DISABLE ;
@@ -101,7 +101,7 @@ const float volt_div_table[] =
 uint32_t INDEX  = 0 ;
 int8_t volt_div_index = 8;
 
-/* ===================== ADDED: FFT section ===================== */
+
 #define FFT_N 4096                       /* power of 2, uses the first FFT_N samples */
 volatile uint8_t fft_mode = DISABLE ;    /* DISABLE = time domain, ENABLE = frequency domain (PA9) */
 static float fft_re[FFT_N];
@@ -372,7 +372,7 @@ void EXTI9_5_IRQHandler(void ){
         }
     }
 
-    /* ADDED: PA9 -> toggle time domain / frequency domain */
+
     if(EXTI->PR & (1 << 9)) {
         GPIO_IRQHandler(GPIO_PIN_NO_9);
         if((now - last_press_time_9) > DEBOUNCE_CYCLES){
@@ -520,7 +520,7 @@ GPIO_Init(&LED_USER ) ;
     GPIO_IRQConfig(IRQ_NO_EXTI9_5, ENABLE) ;
     GPIO_IRQPriorityConfig(IRQ_NO_EXTI9_5, 8) ;
 
-    /* ADDED: PA9 button -> FFT / time-domain toggle (EXTI9, shares EXTI9_5 line) */
+
     GPIO_Handle_t FFT_BUTTON ;
     FFT_BUTTON.pGPIOx = GPIOA;
     FFT_BUTTON.GPIO_PinConfig.GPIO_PinMode = GPIO_MODE_IT_RT ;
@@ -614,7 +614,7 @@ GPIO_Init(&LED_USER ) ;
                 LCD_WriteText(&LCD, 90, 220, "Vmin", LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
                 LCD_WriteText(&LCD, 120, 220, str_two, LCD_COLOR_BLACK, LCD_COLOR_YELLOW, 1);
 
-bool fft_ready = false ;      /* ADDED: FFT is computed once per capture, when first needed */
+bool fft_ready = false ;      
 
 while(ENABLE){
 
@@ -703,7 +703,7 @@ LCD_WriteText(&LCD ,70  ,20 , str_freq , LCD_COLOR_WHITE ,  LCD_COLOR_BLACK , 1 
 if(fft_mode){
 
     if(!fft_ready){
-        FFT_Compute(sample_value);      /* uses the first FFT_N samples */
+        FFT_Compute(sample_value);     
         fft_ready = true ;
     }
 
@@ -740,7 +740,7 @@ if(fft_mode){
 }
 else
 {
-/* ==================== TIME DOMAIN PLOT (unchanged) ==================== */
+
 float count = 0.0f;
 for(float fi = 0.0f; fi < (float)LCD_HEIGHT; fi = fi + gap){
     uint16_t i = (uint16_t)fi;
